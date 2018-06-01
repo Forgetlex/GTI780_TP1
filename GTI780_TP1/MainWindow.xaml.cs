@@ -26,6 +26,8 @@ using Emgu.CV;
 
 using Emgu.CV.Structure;
 using Emgu.CV.CvEnum;
+using System.Windows.Interop;
+
 namespace GTI780_TP1
 {
     /// <summary>
@@ -58,12 +60,15 @@ namespace GTI780_TP1
         // The kinect sensor
 
         private KinectSensor kinectSensor = null;
+        private CoordinateMapper coordinateMapper = null;
+        private DepthSpacePoint[] colorMappedToDepthPoints = null;
 
 
         // The kinect frame reader
 
         private ColorFrameReader colorFrameReader = null;
 
+        private MultiSourceFrameReader mfsReader = null;
 
 
         public MainWindow()
@@ -75,17 +80,21 @@ namespace GTI780_TP1
 
             // Instanciate the WriteableBitmaps used to display the kinect frames
             this.colorBitmap = new WriteableBitmap(RAWCOLORWIDTH, RAWCOLORHEIGHT, 96.0, 96.0, PixelFormats.Bgr32, null);
-            this.depthBitmap = new WriteableBitmap(RAWCOLORWIDTH, RAWCOLORHEIGHT, 96.0, 96.0, PixelFormats.Bgr32, null);
+            this.depthBitmap = new WriteableBitmap(RAWDEPTHWIDTH, RAWDEPTHHEIGHT, 96.0, 96.0, PixelFormats.Bgr32, null);
 
             // Connect to the Kinect Sensor
             this.kinectSensor = KinectSensor.GetDefault();
+            this.coordinateMapper = this.kinectSensor.CoordinateMapper;
+            this.colorMappedToDepthPoints = new DepthSpacePoint[RAWCOLORWIDTH * RAWCOLORHEIGHT];
 
             // open the reader for the color frames
-            this.colorFrameReader = this.kinectSensor.ColorFrameSource.OpenReader();
+            //this.colorFrameReader = this.kinectSensor.ColorFrameSource.OpenReader();
+            this.mfsReader = this.kinectSensor.OpenMultiSourceFrameReader(FrameSourceTypes.Color | FrameSourceTypes.Depth);
 
 
             // wire handler for frame arrival
-            this.colorFrameReader.FrameArrived += this.Reader_FrameArrived;
+            //this.colorFrameReader.FrameArrived += this.Reader_FrameArrived;
+            mfsReader.MultiSourceFrameArrived += this.Reader_MultiSourceFrameArrived;
 
 
             // Open the kinect sensor
@@ -219,7 +228,87 @@ namespace GTI780_TP1
             }
         }
 
+        void Reader_MultiSourceFrameArrived(object sender, MultiSourceFrameArrivedEventArgs e)
+        {
+            // Get a reference to the multi-frame
+            var reference = e.FrameReference.AcquireFrame();
+            ColorFrame colorFrame = null;
+            BodyIndexFrame biFrame = null;
+            DepthFrame depthFrame = null;
+            try
+            {
+                colorFrame = reference.ColorFrameReference.AcquireFrame();
+                if (colorFrame != null)
+                {
+                    ColorSection(colorFrame);
+                }
 
+                depthFrame = reference.DepthFrameReference.AcquireFrame();
+                if (depthFrame != null)
+                {
+                    DepthSection(depthFrame);
+                }
+            }
+            finally
+            {
+
+                if (colorFrame != null)
+                    colorFrame.Dispose();
+
+                if (depthFrame != null)
+                    depthFrame.Dispose();
+            }
+
+        }
+
+        void DepthSection(DepthFrame frame)
+        {
+            using (KinectBuffer depthFrameData = frame.LockImageBuffer())
+            {
+                this.coordinateMapper.MapColorFrameToDepthSpaceUsingIntPtr(
+                    depthFrameData.UnderlyingBuffer,
+                    depthFrameData.Size,
+                    this.colorMappedToDepthPoints);
+                PictureBox2.Source = getImageSourceFromBitmap(DepthFrameToBitmap(frame));
+            }
+        }
+
+        void ColorSection(ColorFrame frame)
+        {
+            bool isColorBitmapLocked = false;
+
+            try
+            {
+                // If the frame has expired or is invalid, return
+                if (frame == null) return;
+                FrameDescription colorDesc = frame.FrameDescription;
+                // Using an IDisposable buffer to work with the color frame. Will be disposed automatically at the end of the using block.
+                using (KinectBuffer colorBuffer = frame.LockRawImageBuffer())
+                {
+                    // Lock the colorBitmap while we write in it.
+                    this.colorBitmap.Lock();
+                    isColorBitmapLocked = true;
+
+                    // Check for correct size
+                    if (colorDesc.Width == this.colorBitmap.Width && colorDesc.Height == this.colorBitmap.Height)
+                    {
+                        //write the new color frame data to the display bitmap
+                        frame.CopyConvertedFrameDataToIntPtr(this.colorBitmap.BackBuffer, (uint)(colorDesc.Width * colorDesc.Height * BYTESPERPIXELS), ColorImageFormat.Bgra);
+
+                        // Mark the entire buffer as dirty to refresh the display
+                        this.colorBitmap.AddDirtyRect(new Int32Rect(0, 0, colorDesc.Width, colorDesc.Height));
+                    }
+
+                    // Unlock the colorBitmap
+                    this.colorBitmap.Unlock();
+                    isColorBitmapLocked = false;
+                }
+            }
+            finally
+            {
+                if (isColorBitmapLocked) this.colorBitmap.Unlock();
+            }
+        }
 
         public ImageSource ImageSource1
         {
@@ -235,6 +324,78 @@ namespace GTI780_TP1
             {
                 return this.depthBitmap;
             }
+        }
+
+        public BitmapSource getImageSourceFromBitmap(Bitmap bmp)
+        {
+            BitmapSource imageSource = null;
+            try
+            {
+                imageSource = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(),IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            }
+            catch {
+                return null;
+            }
+            return imageSource;
+        }
+
+        private Bitmap BitmapFromSource(BitmapSource bitmapsource)
+        {
+            Bitmap bitmap;
+            using (MemoryStream outStream = new MemoryStream())
+            {
+                BitmapEncoder bmpEnc = new BmpBitmapEncoder();
+                bmpEnc.Frames.Add(BitmapFrame.Create(bitmapsource));
+                bmpEnc.Save(outStream);
+                bitmap = new Bitmap(outStream);
+                outStream.Dispose();
+            }
+            return bitmap;
+        }
+
+        private Bitmap DepthFrameToBitmap(DepthFrame frame)
+        {
+            PixelFormat format = PixelFormats.Bgr32;
+
+            int width = frame.FrameDescription.Width;
+            int height = frame.FrameDescription.Height;
+            int MapDepthToByte = 1000 / 256;
+            ushort minDepth = (ushort)(frame.DepthMinReliableDistance);
+            ushort maxDepth = frame.DepthMaxReliableDistance;
+
+            ushort[] depthData = new ushort[width * height];
+            byte[] pixelData = new byte[width * height * (PixelFormats.Bgr32.BitsPerPixel + 7) / 8];
+
+            frame.CopyFrameDataToArray(depthData);
+
+            int colorI = 0;
+            for (int depthI = 0; depthI < depthData.Length; ++depthI)
+            {
+                ushort depth = depthData[depthI];
+                byte intensity = (byte)(255 - (depth >= minDepth && depth <= maxDepth ? ((depth - minDepth) / MapDepthToByte) : 255));
+                
+                pixelData[colorI++] = intensity; // Blue
+                pixelData[colorI++] = intensity; // Green
+                pixelData[colorI++] = intensity; // Red
+
+                colorI++;
+            }
+
+            int stride = width * format.BitsPerPixel / 8;
+            BitmapSource image = BitmapSource.Create(width, height, 96, 96, format, null, pixelData, stride);
+            double ratioX = (double)RAWCOLORWIDTH / (double)width;
+            double ratioY = (double)RAWCOLORHEIGHT / (double)height;
+
+            // to be replace by CoordinateMapper : How ??
+            image = new TransformedBitmap(image, new ScaleTransform(ratioX, ratioY));
+
+            Bitmap imageBitmap = BitmapFromSource(image);
+
+            Image<Bgr, Byte> imageBGR = new Image<Bgr, byte>(imageBitmap);
+            imageBitmap.Dispose();
+            Image<Bgr, byte> imageSmooth = imageBGR.SmoothMedian(5);
+            imageBGR.Dispose();
+            return imageSmooth.ToBitmap();
         }
 
         private void InitializeComponentsSize()
@@ -270,6 +431,12 @@ namespace GTI780_TP1
             {
                 this.colorFrameReader.Dispose();
                 this.colorFrameReader = null;
+            }
+
+            if(this.mfsReader != null)
+            {
+                this.mfsReader.Dispose();
+                this.mfsReader = null;
             }
 
             if (this.kinectSensor != null)
