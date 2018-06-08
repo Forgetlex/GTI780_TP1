@@ -359,7 +359,7 @@ namespace GTI780_TP1
 
             int width = frame.FrameDescription.Width;
             int height = frame.FrameDescription.Height;
-            int MapDepthToByte = 1000 / 256;
+            int mapDepthToByte = 1000 / 256;
             ushort minDepth = (ushort)(frame.DepthMinReliableDistance);
             ushort maxDepth = frame.DepthMaxReliableDistance;
 
@@ -372,7 +372,7 @@ namespace GTI780_TP1
             for (int depthI = 0; depthI < depthData.Length; ++depthI)
             {
                 ushort depth = depthData[depthI];
-                byte intensity = (byte)(255 - (depth >= minDepth && depth <= maxDepth ? ((depth - minDepth) / MapDepthToByte) : 255));
+                byte intensity = (byte)(255 - (depth >= minDepth && depth <= maxDepth ? ((depth - minDepth) / mapDepthToByte) : 255));
                 
                 pixelData[colorI++] = intensity; // Blue
                 pixelData[colorI++] = intensity; // Green
