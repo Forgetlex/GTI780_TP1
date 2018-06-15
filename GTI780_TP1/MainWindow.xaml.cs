@@ -63,6 +63,8 @@ namespace GTI780_TP1
         private CoordinateMapper coordinateMapper = null;
         private DepthSpacePoint[] colorMappedToDepthPoints = null;
 
+        int rightImageFrameCount;
+
 
         // The kinect frame reader
 
@@ -90,6 +92,8 @@ namespace GTI780_TP1
             // open the reader for the color frames
             //this.colorFrameReader = this.kinectSensor.ColorFrameSource.OpenReader();
             this.mfsReader = this.kinectSensor.OpenMultiSourceFrameReader(FrameSourceTypes.Color | FrameSourceTypes.Depth);
+
+            rightImageFrameCount = 0;
 
 
             // wire handler for frame arrival
@@ -237,7 +241,10 @@ namespace GTI780_TP1
             DepthFrame depthFrame = null;
             try
             {
-                colorFrame = reference.ColorFrameReference.AcquireFrame();
+                rightImageFrameCount++;
+                if (rightImageFrameCount == 1)
+                {
+                    colorFrame = reference.ColorFrameReference.AcquireFrame();
                 if (colorFrame != null)
                 {
                     ColorSection(colorFrame);
@@ -247,7 +254,10 @@ namespace GTI780_TP1
                 if (depthFrame != null)
                 {
                     //DepthSection(depthFrame);
-                    GetRightImage(depthFrame, colorFrame);
+                    
+                        GetRightImage(depthFrame, colorFrame);
+                }
+                    rightImageFrameCount = 0;
                 }
             }
             finally
@@ -276,11 +286,11 @@ namespace GTI780_TP1
 
         void GetRightImage(DepthFrame dFrame, ColorFrame cFrame)
         {
-            byte[] density = GetDensityInPixelsForImage(dFrame);
-            ShowColorFrameWithDensity(cFrame, new byte[2]);
+            byte[] disparity = GetDisparityInPixelsForImage(dFrame);
+            ShowColorFrameWithDisparity(cFrame, disparity);
         }
 
-        void ShowColorFrameWithDensity(ColorFrame frame, byte[] density)
+        void ShowColorFrameWithDisparity(ColorFrame frame, byte[] disparity)
         {
             PixelFormat format = PixelFormats.Bgr32;
             int stride = frame.FrameDescription.Width * format.BitsPerPixel / 8;
@@ -288,19 +298,51 @@ namespace GTI780_TP1
             colorBitmap.CopyPixels(pixelData, stride, 0);
 
             byte[] rightImage = new byte[RAWCOLORHEIGHT * stride];
-   
-            BitmapSource image = BitmapSource.Create(frame.FrameDescription.Width, frame.FrameDescription.Height, 96, 96, format, null, pixelData, stride);
+            for(int i = 0; i < frame.FrameDescription.Height; i++) {
+                for(int j = 0; j < frame.FrameDescription.Width; j++) {
+                    int index = i * stride + (j + disparity[i*((int)colorBitmap.Width)+j])*format.BitsPerPixel;
+                    for (int k = 0; k < format.BitsPerPixel; k++) {
+                        try
+                        {
+                           rightImage[index + k] = pixelData[i * stride + j * format.BitsPerPixel + k];
+                        }
+                        catch(Exception ex)
+                        {
+                        }
+                    }
+                }
+            }
+            BitmapSource image = BitmapSource.Create(Convert.ToInt32(this.colorBitmap.Width), Convert.ToInt32(this.colorBitmap.Height), 96, 96, this.colorBitmap.Format, null, rightImage, stride);
+            PictureBox2.Source = image;
 
-                PictureBox2.Source = image;
-           
+            /*BitmapSource image = BitmapSource.Create(Convert.ToInt32(this.colorBitmap.Width), Convert.ToInt32(this.colorBitmap.Height), 96, 96, this.colorBitmap.Format, null, pixelData, stride);
+             Bitmap bmpRightImage = BitmapFromSource(image);
+             Bitmap bmpLeftImage = BitmapFromSource(image);
+
+             for(int y = 0; y < bmpLeftImage.Height; y++)
+             {
+                 for(int x = 0; x < bmpLeftImage.Width; x++)
+                 {
+                     try
+                     {
+                         bmpRightImage.SetPixel(x + disparity[y * bmpLeftImage.Width + x], y, bmpLeftImage.GetPixel(x, y));
+                     }catch(Exception ex)
+                     {
+
+                     }
+                 }
+             }
+
+             PictureBox2.Source = getImageSourceFromBitmap(bmpRightImage);*/
+
             /*this.depthBitmap.CopyPixels(frameData, RAWCOLORWIDTH, 0);
             this.depthBitmap.AddDirtyRect(new Int32Rect(0, 0, RAWCOLORWIDTH, RAWCOLORHEIGHT));*/
-            
+
 
 
         }
 
-        byte[] GetDensityInPixelsForImage(DepthFrame frame)
+        byte[] GetDisparityInPixelsForImage(DepthFrame frame)
         {
             double knear = 0.1;
             double kfar = 0.6;
@@ -317,7 +359,14 @@ namespace GTI780_TP1
             double N = 1920;
 
             Bitmap bmp = DepthFrameToBitmap(frame);
-            byte[] densityArray = new byte[bmp.Width * bmp.Height];
+            /*int stride = bmp.Width * PixelFormats.Bgr32.BitsPerPixel;
+            byte[] pixelData = new byte[Convert.ToInt32(this.colorBitmap.Width) * Convert.ToInt32(this.colorBitmap.Height) * PixelFormats.Bgr32.BitsPerPixel];
+            this.colorBitmap.CopyPixels(pixelData, stride, 0);
+            BitmapSource image = BitmapSource.Create( Convert.ToInt32(this.colorBitmap.Width), Convert.ToInt32(this.colorBitmap.Height), 96, 96, this.colorBitmap.Format, null, pixelData, stride);
+            Bitmap bmpRightImage = BitmapFromSource(image);
+            Bitmap bmpLeftImage = BitmapFromSource(image);*/
+
+            byte[] disparityArray = new byte[bmp.Width * bmp.Height];
             int height = bmp.Height;
             int width = bmp.Width;
             for (int y = 0; y < height; y++)
@@ -330,10 +379,12 @@ namespace GTI780_TP1
                     double zp = W * (( m / (Math.Pow(2,N))) * (knear + kfar) - kfar);
                     double p = tc * (1 - ( (D)/(D - zp)));
                     double pix = (p * N) / W;
-                    densityArray[y * bmp.Height + x] = Convert.ToByte(pix);
+                    byte b = Convert.ToByte(pix);
+                    disparityArray[y * bmp.Width + x] = b;
                 }
             }
-            return densityArray;
+            //PictureBox2.Source = getImageSourceFromBitmap(bmpRightImage);
+            return disparityArray;
         }
 
         void ColorSection(ColorFrame frame)
