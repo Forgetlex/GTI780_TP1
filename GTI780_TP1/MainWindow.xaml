@@ -7,9 +7,9 @@
     <Grid x:Name="Grid1" HorizontalAlignment="Left" VerticalAlignment="Top" RenderTransformOrigin="0.5,0.5" Margin="0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"></ColumnDefinition>
-            <ColumnDefinition Width="Auto"></ColumnDefinition>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
+            <RowDefinition></RowDefinition>
             <RowDefinition></RowDefinition>
         </Grid.RowDefinitions>
         <Image x:Name="PictureBox1"
@@ -17,7 +17,7 @@
                Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0"/>
         <Image x:Name="PictureBox2"
                Source="{Binding ImageSource2}"
-                Stretch="None" Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                Stretch="None" Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Top"/>
         <Image Name="HeaderImage" Source="EnTeteIncorrect.bmp"
                Stretch="None" Grid.Row="0" Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Top" />
     </Grid>

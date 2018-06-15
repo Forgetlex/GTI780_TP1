@@ -246,7 +246,8 @@ namespace GTI780_TP1
                 depthFrame = reference.DepthFrameReference.AcquireFrame();
                 if (depthFrame != null)
                 {
-                    DepthSection(depthFrame);
+                    //DepthSection(depthFrame);
+                    GetRightImage(depthFrame, colorFrame);
                 }
             }
             finally
@@ -269,8 +270,70 @@ namespace GTI780_TP1
                     depthFrameData.UnderlyingBuffer,
                     depthFrameData.Size,
                     this.colorMappedToDepthPoints);
-                PictureBox2.Source = getImageSourceFromBitmap(DepthFrameToBitmap(frame));
+                //PictureBox2.Source = getImageSourceFromBitmap(DepthFrameToBitmap(frame));
             }
+        }
+
+        void GetRightImage(DepthFrame dFrame, ColorFrame cFrame)
+        {
+            byte[] density = GetDensityInPixelsForImage(dFrame);
+            ShowColorFrameWithDensity(cFrame, new byte[2]);
+        }
+
+        void ShowColorFrameWithDensity(ColorFrame frame, byte[] density)
+        {
+            PixelFormat format = PixelFormats.Bgr32;
+            int stride = frame.FrameDescription.Width * format.BitsPerPixel / 8;
+            byte[] pixelData = new byte[RAWCOLORHEIGHT * stride];
+            colorBitmap.CopyPixels(pixelData, stride, 0);
+
+            byte[] rightImage = new byte[RAWCOLORHEIGHT * stride];
+   
+            BitmapSource image = BitmapSource.Create(frame.FrameDescription.Width, frame.FrameDescription.Height, 96, 96, format, null, pixelData, stride);
+
+                PictureBox2.Source = image;
+           
+            /*this.depthBitmap.CopyPixels(frameData, RAWCOLORWIDTH, 0);
+            this.depthBitmap.AddDirtyRect(new Int32Rect(0, 0, RAWCOLORWIDTH, RAWCOLORHEIGHT));*/
+            
+
+
+        }
+
+        byte[] GetDensityInPixelsForImage(DepthFrame frame)
+        {
+            double knear = 0.1;
+            double kfar = 0.6;
+            double tc = 0.065;//65mm
+            double w = Screen.PrimaryScreen.Bounds.Width;
+            double h = Screen.PrimaryScreen.Bounds.Height;
+            double ratio = w / h;
+
+            // T qui n'est pas fixe, j'ai prit celui de l'exemple dans les notes
+            double T = 1.52;
+            double W = 1.33;
+            double H = 0.74;
+            double D = 3 * H;
+            double N = 1920;
+
+            Bitmap bmp = DepthFrameToBitmap(frame);
+            byte[] densityArray = new byte[bmp.Width * bmp.Height];
+            int height = bmp.Height;
+            int width = bmp.Width;
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    System.Drawing.Color c = bmp.GetPixel(x, y);
+                    byte m = c.B;
+
+                    double zp = W * (( m / (Math.Pow(2,N))) * (knear + kfar) - kfar);
+                    double p = tc * (1 - ( (D)/(D - zp)));
+                    double pix = (p * N) / W;
+                    densityArray[y * bmp.Height + x] = Convert.ToByte(pix);
+                }
+            }
+            return densityArray;
         }
 
         void ColorSection(ColorFrame frame)
@@ -416,13 +479,13 @@ namespace GTI780_TP1
             this.Grid1.Height = this.screenHeight;
 
             // Make the PictureBox1 half the screen width and full screen height
-            this.PictureBox1.Width = this.screenWidth / 2;
-            this.PictureBox1.Height = this.screenHeight;
+            this.PictureBox1.Width = this.screenWidth;
+            this.PictureBox1.Height = this.screenHeight / 2;
 
             // Make the PictureBox2 half the screen width and full screen height
-            this.PictureBox2.Width = this.screenWidth / 2;
+            this.PictureBox2.Width = this.screenWidth;
             this.PictureBox2.Margin = new Thickness(0, 0, 0, 0);
-            this.PictureBox2.Height = this.screenHeight;
+            this.PictureBox2.Height = this.screenHeight / 2;
         }
 
         private void MainWindow_Closing(object sender, CancelEventArgs e)
